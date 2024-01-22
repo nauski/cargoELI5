@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import subprocess
 import os
 import json
@@ -6,6 +8,7 @@ import re
 
 import os
 import wandb
+from termcolor import colored
 from openai import OpenAI
 
 client = OpenAI()
@@ -14,7 +17,7 @@ gpt_assistant_prompt = "You are an expert Rust developer"
 gpt_user_prompt = "Explain these errors to me like I'm 5" 
 gpt_prompt = gpt_assistant_prompt, gpt_user_prompt
     
-message=[{"role": "assistant", "content": gpt_assistant_prompt}, {"role": "user", "content": gpt_user_prompt}]
+#message=[{"role": "assistant", "content": gpt_assistant_prompt}, {"role": "user", "content": gpt_user_prompt}]
 temperature=0.2
 max_tokens=256
 frequency_penalty=0.0
@@ -27,48 +30,44 @@ def run_cargo():
     result = subprocess.run(["cargo", "run"], capture_output=True, text=True)
     return result.stdout + result.stderr
 
-#def extract_errors(cargo_output):
-#    # Regular expression to capture multiline error messages
-#    error_pattern = re.compile(r'error:.*?(?=\n\n|\Z)', re.DOTALL)
-#    errors = error_pattern.findall(cargo_output)
-#    return [error.strip() for error in errors]
-
 def extract_errors(cargo_output):
     # Regular expression to capture individual error messages
-    error_pattern = re.compile(r'error:.*?(?=\n\nerror:|\n\nFor more information about this error, try|\Z)', re.DOTALL)
-    errors = error_pattern.findall(cargo_output)
+    error_pattern = re.compile(r'error.*?(?=\n(?=error|$))', re.DOTALL)
+    matches = error_pattern.findall(cargo_output)
 
     # Filter out the summary error message and empty matches
-    filtered_errors = [error.strip() for error in errors if "could not compile" not in error and error.strip()]
+    errors = [error.strip() for error in matches if "could not compile" not in error]
 
-    return filtered_errors
-
+    return errors
 
 def explain_errors(errors):
-    query = ""
-    for ele in errors:
-        query += ele
+    explained_errors = []
 
-    # Updating the user message content with the query
-    message[1]["content"] = gpt_user_prompt + "\n\n" + query
+    for error in errors:
+        # Construct the query for ChatGPT
+        query = "Please explain the following in short, preferably under 50 words, also don't print code examples." + error
 
-    response = client.chat.completions.create(
-        model="gpt-4",
-        messages=message,
-        temperature=temperature,
-        max_tokens=max_tokens,
-        frequency_penalty=frequency_penalty
-    )
+        # Send the query to ChatGPT and get the explanation
+        response = client.chat.completions.create(
+            model="gpt-4",
+            messages=[{"role": "user", "content": query}],
+            temperature=temperature,
+            max_tokens=max_tokens,
+            frequency_penalty=frequency_penalty
+        )
 
-    explanations = []
+        # Extract the explanation
+        explanation = ""
+        if response.choices:
+            explanation_message = response.choices[0].message
+            if explanation_message:
+                explanation = explanation_message.content
 
-    # Extracting the content from the response
-    if response.choices:
-        explanation_message = response.choices[0].message
-        if explanation_message:
-            explanations.append(explanation_message.content)
+        # Append the error and its explanation to the array
+        explained_errors.append({"error": error, "explanation": explanation})
 
-    return explanations
+    return explained_errors
+
 
 def main():
     settings = read_settings()
@@ -79,14 +78,15 @@ def main():
 
     cargo_output = run_cargo()
     errors = extract_errors(cargo_output)
+
     if errors:
-        explanations = explain_errors(errors)
-        for error, explanation in zip(errors, explanations):
-            print("\nError Message:")
-            print(error)
-            print("\nSimplified Explanation:")
-            print(explanation)
-            print("\n" + "-" * 40 + "\n")
+        explained_errors = explain_errors(errors)
+        for explained_error in explained_errors:
+            print(colored("\nError:", 'red'))
+            print(explained_error['error'])
+            print(colored("\nExplanation:", 'green'))
+            print(explained_error['explanation'])
+            print(colored("\n" + "-" * 40 + "\n", 'yellow'))
     else:
         print("No errors found.")
 
