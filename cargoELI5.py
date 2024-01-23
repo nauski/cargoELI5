@@ -1,13 +1,10 @@
 #!/usr/bin/env python3
 
 import subprocess
-import os
-import json
 import requests
 import re
 import threading
 import time
-import wandb
 import random
 
 from termcolor import colored
@@ -19,10 +16,6 @@ temperature=0.2
 max_tokens=256
 frequency_penalty=0.0
 
-def read_settings():
-    with open('settings.json', 'r') as file:
-        return json.load(file)
-
 def run_cargo():
     result = subprocess.run(["cargo", "run"], capture_output=True, text=True)
     return result.stdout + result.stderr
@@ -32,7 +25,7 @@ def extract_errors(cargo_output):
     error_pattern = re.compile(r'error.*?(?=\n(?=error|$))', re.DOTALL)
     matches = error_pattern.findall(cargo_output)
 
-    # Filter out the summary error message and empty matches
+    # filter out the summary error message and empty matches
     errors = [error.strip() for error in matches if "could not compile" not in error]
 
     return errors
@@ -42,7 +35,7 @@ def explain_errors(errors):
 
 
     for error in errors:
-        query = "Please explain the following in short but very compassionate way, preferably under 50 words, also don't print code examples." + error
+        query = "Please explain the following in short but very compassionate way, preferably under 50 words, don't print code examples." + error
 
         response = client.chat.completions.create(
             model="gpt-4",
@@ -82,7 +75,6 @@ def display_random_aphorism():
         "Life is 10% what happens to us and 90% how we react to it. - Charles R. Swindoll",
         "Do not take life too seriously. You will never get out of it alive. - Elbert Hubbard",
         "To succeed in life, you need two things: ignorance and confidence. - Mark Twain",
-        # Add more aphorisms as desired
     ]
     selected_aphorism = random.choice(aphorisms)
     print(colored("Aphorism while waiting:", 'cyan'))
@@ -90,7 +82,6 @@ def display_random_aphorism():
 
 
 def main():
-    settings = read_settings()
     api_key = os.environ.get("CARGOELI5_API_KEY")
     if not api_key:
         print("Error: CARGOELI5_API_KEY environment variable not set.")
