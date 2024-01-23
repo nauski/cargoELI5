@@ -5,19 +5,16 @@ import os
 import json
 import requests
 import re
-
-import os
+import threading
+import time
 import wandb
+import random
+
 from termcolor import colored
 from openai import OpenAI
 
 client = OpenAI()
 
-gpt_assistant_prompt = "You are an expert Rust developer" 
-gpt_user_prompt = "Explain these errors to me like I'm 5" 
-gpt_prompt = gpt_assistant_prompt, gpt_user_prompt
-    
-#message=[{"role": "assistant", "content": gpt_assistant_prompt}, {"role": "user", "content": gpt_user_prompt}]
 temperature=0.2
 max_tokens=256
 frequency_penalty=0.0
@@ -31,7 +28,7 @@ def run_cargo():
     return result.stdout + result.stderr
 
 def extract_errors(cargo_output):
-    # Regular expression to capture individual error messages
+    # parsing the individual errors into an array
     error_pattern = re.compile(r'error.*?(?=\n(?=error|$))', re.DOTALL)
     matches = error_pattern.findall(cargo_output)
 
@@ -43,11 +40,10 @@ def extract_errors(cargo_output):
 def explain_errors(errors):
     explained_errors = []
 
-    for error in errors:
-        # Construct the query for ChatGPT
-        query = "Please explain the following in short, preferably under 50 words, also don't print code examples." + error
 
-        # Send the query to ChatGPT and get the explanation
+    for error in errors:
+        query = "Please explain the following in short but very compassionate way, preferably under 50 words, also don't print code examples." + error
+
         response = client.chat.completions.create(
             model="gpt-4",
             messages=[{"role": "user", "content": query}],
@@ -56,17 +52,41 @@ def explain_errors(errors):
             frequency_penalty=frequency_penalty
         )
 
-        # Extract the explanation
+        # extracting the explanation
         explanation = ""
         if response.choices:
             explanation_message = response.choices[0].message
             if explanation_message:
                 explanation = explanation_message.content
 
-        # Append the error and its explanation to the array
+        # appending the error and its explanation to the array
         explained_errors.append({"error": error, "explanation": explanation})
 
+    
     return explained_errors
+
+def spinner(stop_signal):
+    spinner_chars = "|/-\\"
+    while not stop_signal.is_set():
+        for char in spinner_chars:
+            if stop_signal.is_set():
+                break
+            print(char, end="\r", flush=True)
+            time.sleep(0.1)
+
+
+def display_random_aphorism():
+
+    aphorisms = [
+        "The only way to do great work is to love what you do. - Steve Jobs",
+        "Life is 10% what happens to us and 90% how we react to it. - Charles R. Swindoll",
+        "Do not take life too seriously. You will never get out of it alive. - Elbert Hubbard",
+        "To succeed in life, you need two things: ignorance and confidence. - Mark Twain",
+        # Add more aphorisms as desired
+    ]
+    selected_aphorism = random.choice(aphorisms)
+    print(colored("Aphorism while waiting:", 'cyan'))
+    print(colored(selected_aphorism, 'cyan'))
 
 
 def main():
@@ -80,7 +100,16 @@ def main():
     errors = extract_errors(cargo_output)
 
     if errors:
+        display_random_aphorism()
+        stop_spinner = threading.Event()
+        spinner_thread = threading.Thread(target=spinner, args=(stop_spinner,))
+        spinner_thread.start()
+        
         explained_errors = explain_errors(errors)
+        
+        stop_spinner.set()
+        spinner_thread.join()
+        
         for explained_error in explained_errors:
             print(colored("\nError:", 'red'))
             print(explained_error['error'])
